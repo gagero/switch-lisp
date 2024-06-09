@@ -1,4 +1,7 @@
-(defcustom *switch-lisp-window-side* 'right "Side on which to open the new window on.  Corresponds to the SPLIT-WINDOW functions."
+(require 'cl-lib)
+
+(defcustom *switch-lisp-window-side* 'right
+	"Side on which to open the new window on.  Corresponds to the SPLIT-WINDOW functions."
 	:group 'programming
 	:type '(choice (const :tag "Right" right)
 								 (const :tag "Below" below)
@@ -19,29 +22,40 @@
 (defcustom *switch-lisp-delete-windows-on-non-lisp* t "If t, delete REPL windows when switching to any other language or to elisp."
 	:group 'programming
 	:type '(boolean))
-(defcustom *switch-lisp-common-lisp-repl-command* 'slime "Command to invoke if a Common Lisp REPL isn't found for a Common Lisp file."
+
+;; Use hash table for all languages (key: language, value: (extension command feature buffer), loop through all entries in `switch-lisp'
+;; TODO: change to struct
+
+(cl-defstruct switch-lisp--language-data
+	"Structure used in `*switch-lisp-languages*'."
+	(name nil :type string)
+	(extension nil :type string)
+	(command nil :type symbol)
+	(feature nil :type symbol)
+	(buffer nil :type string))
+
+(defcustom *switch-lisp-languages* (list (make-switch-lisp--language-data :name "Common Lisp" :extension ".lisp" :command #'slime :feature 'slime :buffer "*slime*")
+																				 (make-switch-lisp--language-data :name "Scheme" :extension ".scm" :command #'geiser :feature 'geiser :buffer "*geiser*")
+																				 (make-switch-lisp--language-data :name "Clojure" :extension ".clj" :command #'cider-jack-in :feature 'cider :buffer "*cider-repl cider-nrepl*"))
+	"A list of languages used by `switch-lisp'.  Each element is of type `switch-lisp--language-data'.  If you wish to add your own languages, add your language to this variable and, if you need more advanced functionality (like supporting multiple REPLs), define advice around `switch-lisp'."
 	:group 'programming
-	:type '(function))
-(defcustom *switch-lisp-scheme-repl-command* 'geiser "Command to invoke if a Scheme REPL isn't found for a Scheme file."
-	:group 'programming
-	:type '(function))
-(defcustom *switch-lisp-clojure-repl-command* 'cider-jack-in "Command to invoke if a Clojure REPL isn't found for a Clojure file."
-	:group 'programming
-	:type '(function))
+	:type '(list))
 
 ;; TODO: either project or server-based detection of which files belong to which REPL instance.
 ;; TODO: only delete REPL windows on default case
+;; TODO: test
 (defun switch-lisp (buffer)
 	"Switch between Lisp buffers and REPLs depending on BUFFER."
 	(interactive "bBuffer: ")
 	(let* ((buf (get-buffer buffer))
 				 (file (buffer-file-name buf))
 				 (extension (if file (file-name-extension file) nil)))
-		(cond
-		 ((string= ".lisp" extension) (progn (require 'sly) (switch-lisp--open-side-buffer-if-not-exists "*slime*" *switch-lisp-common-lisp-repl-command* buffer)))
-		 ((string= ".scm" extension) (progn (require 'geiser) (switch-lisp--open-side-buffer-if-not-exists "*geiser*" *switch-lisp-scheme-repl-command* buffer)))
-		 ((string= ".clj" extension) (progn (require 'cider) (switch-lisp--open-side-buffer-if-not-exists "*cider-repl cider-nrepl*" *switch-lisp-clojure-repl-command*)))
-		 (t (progn (switch-to-buffer buf) (if *switch-lisp-delete-windows-on-non-lisp* (delete-other-windows)))))))
+		(dolist (current-language *switch-lisp-languages*)
+			(when (string= (switch-lisp--language-data-extension current-language) extension)
+				(progn (require (switch-lisp--language-data-feature current-language))
+							 (switch-lisp--open-side-buffer-if-not-exists
+								(switch-lisp--language-data-buffer current-language)
+								(switch-lisp--language-data-command current-language) buffer))))))
 
 (provide 'switch-lisp)
 
